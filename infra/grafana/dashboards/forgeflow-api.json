@@ -1,0 +1,53 @@
+{
+  "annotations": { "list": [] },
+  "editable": false,
+  "panels": [
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 0 },
+      "id": 1,
+      "targets": [{ "expr": "sum(rate(forgeflow_http_request_duration_seconds_count[5m]))", "refId": "A" }],
+      "title": "API request rate",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 0 },
+      "id": 2,
+      "targets": [{ "expr": "sum by (result) (increase(forgeflow_processor_jobs_total[1h]))", "legendFormat": "{{result}}", "refId": "A" }],
+      "title": "Processor outcomes — 1h",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 0 },
+      "id": 3,
+      "targets": [{ "expr": "max(forgeflow_queued_jobs)", "refId": "A" }],
+      "title": "Ready jobs",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 8 },
+      "id": 4,
+      "targets": [
+        { "expr": "histogram_quantile(0.50, sum by (le, result) (rate(forgeflow_processing_duration_seconds_bucket[5m])))", "legendFormat": "p50 {{result}}", "refId": "A" },
+        { "expr": "histogram_quantile(0.95, sum by (le, result) (rate(forgeflow_processing_duration_seconds_bucket[5m])))", "legendFormat": "p95 {{result}}", "refId": "B" }
+      ],
+      "title": "Processor duration",
+      "type": "timeseries"
+    }
+  ],
+  "refresh": "10s",
+  "schemaVersion": 39,
+  "tags": ["forgeflow", "3d", "assets"],
+  "time": { "from": "now-3h", "to": "now" },
+  "timezone": "browser",
+  "title": "ForgeFlow Operations",
+  "uid": "forgeflow-operations",
+  "version": 1
+}

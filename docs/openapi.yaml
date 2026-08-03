@@ -1,0 +1,947 @@
+openapi: 3.1.0
+info:
+  title: ForgeFlow API
+  version: 2.0.0
+  summary: Realtime 3D asset operations control plane
+  description: >-
+    API for authenticated glTF/GLB ingestion, durable processing, quality review,
+    immutable version delivery, operational jobs, and audit evidence.
+  license:
+    name: MIT
+    identifier: MIT
+servers:
+  - url: /
+    description: Same-origin deployment or local API proxy
+tags:
+  - name: Authentication
+    description: Local demo authentication and narrow-purpose live tickets.
+  - name: Assets
+    description: Project discovery, asset ingestion, lineage, and binary delivery.
+  - name: Workflow
+    description: Durable processing jobs and human review decisions.
+  - name: Operations
+    description: Health, metrics, realtime invalidation, dashboard, and audit evidence.
+paths:
+  /health/live:
+    get:
+      tags: [Operations]
+      operationId: getLiveness
+      summary: Process liveness
+      security: []
+      responses:
+        '200':
+          description: The API process is responding.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+  /health/ready:
+    get:
+      tags: [Operations]
+      operationId: getReadiness
+      summary: Dependency readiness
+      security: []
+      responses:
+        '200':
+          description: PostgreSQL and object storage are ready.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Readiness'
+        '503':
+          description: At least one required dependency is unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Readiness'
+  /metrics:
+    get:
+      tags: [Operations]
+      operationId: getMetrics
+      summary: Prometheus metrics
+      security: []
+      responses:
+        '200':
+          description: Prometheus text exposition.
+          content:
+            text/plain:
+              schema:
+                type: string
+  /api/v1/auth/login:
+    post:
+      tags: [Authentication]
+      operationId: login
+      summary: Sign in with a local demo account
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Authenticated session.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/auth/me:
+    get:
+      tags: [Authentication]
+      operationId: getCurrentUser
+      summary: Resolve the current user
+      responses:
+        '200':
+          description: Current authenticated user.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [user]
+                properties:
+                  user:
+                    $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/auth/live-ticket:
+    post:
+      tags: [Authentication]
+      operationId: createLiveTicket
+      summary: Create a short-lived SSE ticket
+      responses:
+        '200':
+          description: Narrow-purpose live stream ticket.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ticket, expiresInSeconds]
+                properties:
+                  ticket:
+                    type: string
+                  expiresInSeconds:
+                    type: integer
+                    description: Lifetime in seconds.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/live:
+    get:
+      tags: [Operations]
+      operationId: streamUpdates
+      summary: Stream workspace invalidations
+      description: >-
+        Opens a Server-Sent Events connection. Obtain the narrow-purpose ticket
+        immediately before connecting; it expires quickly and is redacted from logs.
+      security: []
+      parameters:
+        - name: ticket
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 20
+      responses:
+        '200':
+          description: Server-Sent Events stream.
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/dashboard:
+    get:
+      tags: [Operations]
+      operationId: getDashboard
+      summary: Get workspace operational summary
+      responses:
+        '200':
+          description: Counts, queue state, and recent activity.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Dashboard'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/projects:
+    get:
+      tags: [Assets]
+      operationId: listProjects
+      summary: List projects in the current workspace
+      responses:
+        '200':
+          description: Workspace projects.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [projects]
+                properties:
+                  projects:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Project'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/assets:
+    get:
+      tags: [Assets]
+      operationId: listAssets
+      summary: Search assets
+      parameters:
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/AssetStatus'
+        - name: projectId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: search
+          in: query
+          schema:
+            type: string
+            maxLength: 100
+      responses:
+        '200':
+          description: Matching assets in the current workspace.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [assets]
+                properties:
+                  assets:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AssetSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags: [Assets]
+      operationId: createAsset
+      summary: Upload and queue a glTF/GLB source
+      description: Requires `ADMIN` or `ARTIST`.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [projectId, file]
+              properties:
+                projectId:
+                  type: string
+                  format: uuid
+                name:
+                  type: string
+                  maxLength: 160
+                tags:
+                  type: string
+                  description: Comma-separated tags; at most 12 are retained.
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '201':
+          description: New asset and processing job accepted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateAssetResponse'
+        '200':
+          description: Matching source was already registered in the project.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateAssetResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '413':
+          description: Upload exceeds the configured byte limit.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '415':
+          description: File extension or media type is unsupported.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Bytes are not a valid glTF 2.0/GLB document.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/assets/{id}:
+    get:
+      tags: [Assets]
+      operationId: getAsset
+      summary: Get asset details and lineage
+      parameters:
+        - $ref: '#/components/parameters/AssetId'
+      responses:
+        '200':
+          description: Asset plus metrics, versions, status history, and events.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssetDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/assets/{id}/content:
+    get:
+      tags: [Assets]
+      operationId: getAssetContent
+      summary: Stream source or delivery bytes
+      parameters:
+        - $ref: '#/components/parameters/AssetId'
+        - name: kind
+          in: query
+          schema:
+            type: string
+            enum: [source, delivery]
+            default: delivery
+        - name: Range
+          in: header
+          schema:
+            type: string
+            examples: [bytes=0-1048575]
+      responses:
+        '200':
+          description: Complete glTF or GLB object.
+          headers:
+            Accept-Ranges:
+              schema:
+                type: string
+                const: bytes
+          content:
+            model/gltf+json:
+              schema:
+                type: string
+                format: binary
+            model/gltf-binary:
+              schema:
+                type: string
+                format: binary
+        '206':
+          description: Requested byte range.
+          content:
+            model/gltf+json:
+              schema:
+                type: string
+                format: binary
+            model/gltf-binary:
+              schema:
+                type: string
+                format: binary
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '416':
+          description: Requested range cannot be satisfied.
+  /api/v1/assets/{id}/reprocess:
+    post:
+      tags: [Workflow]
+      operationId: reprocessAsset
+      summary: Queue a new asset revision
+      description: Requires `ADMIN` or `ARTIST`.
+      parameters:
+        - $ref: '#/components/parameters/AssetId'
+      responses:
+        '202':
+          description: New revision queued.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QueuedResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Current lifecycle state cannot be reprocessed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/jobs:
+    get:
+      tags: [Workflow]
+      operationId: listJobs
+      summary: List recent processing jobs
+      responses:
+        '200':
+          description: Current workspace jobs.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [jobs]
+                properties:
+                  jobs:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Job'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/jobs/{id}/retry:
+    post:
+      tags: [Workflow]
+      operationId: retryJob
+      summary: Create a retry for a failed job
+      description: Requires `ADMIN` or `ARTIST`.
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+      responses:
+        '202':
+          description: Retry queued.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QueuedResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/reviews:
+    get:
+      tags: [Workflow]
+      operationId: listReviews
+      summary: List reviews by decision state
+      parameters:
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/ReviewStatus'
+      responses:
+        '200':
+          description: Review queue.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [reviews]
+                properties:
+                  reviews:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Review'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/reviews/{id}/decision:
+    post:
+      tags: [Workflow]
+      operationId: decideReview
+      summary: Approve or request changes
+      description: Requires `ADMIN` or `REVIEWER`.
+      parameters:
+        - $ref: '#/components/parameters/ReviewId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision]
+              properties:
+                decision:
+                  type: string
+                  enum: [APPROVED, CHANGES_REQUESTED]
+                summary:
+                  type: string
+                  maxLength: 1000
+                  default: ''
+      responses:
+        '200':
+          description: Decision recorded.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status:
+                    type: string
+                    enum: [approved, changes_requested]
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Review was already decided or asset state changed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/audit:
+    get:
+      tags: [Operations]
+      operationId: listAuditEntries
+      summary: List append-only audit evidence
+      description: Requires `ADMIN` or `REVIEWER`.
+      responses:
+        '200':
+          description: Recent workspace audit entries.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [events]
+                properties:
+                  events:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AuditEntry'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    AssetId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    JobId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ReviewId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+  responses:
+    BadRequest:
+      description: Request validation failed.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Unauthorized:
+      description: Authentication is missing, invalid, or expired.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Forbidden:
+      description: Authenticated role cannot perform this action.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    NotFound:
+      description: Resource is absent from the authenticated workspace.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+  schemas:
+    LoginRequest:
+      type: object
+      additionalProperties: false
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        password:
+          type: string
+          minLength: 8
+          maxLength: 200
+    LoginResponse:
+      type: object
+      required: [token, user]
+      properties:
+        token:
+          type: string
+        user:
+          $ref: '#/components/schemas/User'
+    User:
+      type: object
+      required: [id, workspaceId, email, displayName, role]
+      properties:
+        id:
+          type: string
+          format: uuid
+        workspaceId:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        displayName:
+          type: string
+        role:
+          type: string
+          enum: [ADMIN, ARTIST, REVIEWER, VIEWER]
+    AssetStatus:
+      type: string
+      enum:
+        - UPLOADED
+        - QUEUED
+        - PROCESSING
+        - READY_FOR_REVIEW
+        - CHANGES_REQUESTED
+        - APPROVED
+        - PUBLISHED
+        - FAILED
+        - ARCHIVED
+    JobStatus:
+      type: string
+      enum: [QUEUED, RUNNING, RETRY_WAIT, SUCCEEDED, FAILED]
+    ReviewStatus:
+      type: string
+      enum: [PENDING, APPROVED, CHANGES_REQUESTED]
+      default: PENDING
+    Project:
+      type: object
+      required: [id, projectKey, name, description, qualityPolicy, assetCount, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        projectKey:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        qualityPolicy:
+          type: object
+          additionalProperties: true
+        assetCount:
+          type: integer
+          minimum: 0
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    AssetSummary:
+      type: object
+      required:
+        - id
+        - projectId
+        - projectName
+        - name
+        - sourceFilename
+        - contentType
+        - sourceBytes
+        - status
+        - tags
+        - rowVersion
+        - createdByName
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        projectId:
+          type: string
+          format: uuid
+        projectName:
+          type: string
+        name:
+          type: string
+        sourceFilename:
+          type: string
+        contentType:
+          type: string
+          enum: [model/gltf+json, model/gltf-binary]
+        sourceBytes:
+          type: string
+          pattern: '^\d+$'
+        status:
+          $ref: '#/components/schemas/AssetStatus'
+        tags:
+          type: array
+          items:
+            type: string
+        rowVersion:
+          type: integer
+          minimum: 1
+        processingError:
+          type: [string, 'null']
+        currentVersionId:
+          type: [string, 'null']
+          format: uuid
+        qualityScore:
+          type: [integer, 'null']
+          minimum: 0
+          maximum: 100
+        qualityDecision:
+          type: [string, 'null']
+          enum: [PASS, REVIEW, BLOCK, null]
+        metrics:
+          type: [object, 'null']
+          additionalProperties: true
+        findings:
+          type: [array, 'null']
+          items:
+            $ref: '#/components/schemas/QualityFinding'
+        createdByName:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    AssetDetail:
+      allOf:
+        - $ref: '#/components/schemas/AssetSummary'
+        - type: object
+          properties:
+            versions:
+              type: array
+              items:
+                $ref: '#/components/schemas/AssetVersion'
+            history:
+              type: array
+              items:
+                type: object
+                required: [toStatus, reason, changedAt]
+                properties:
+                  fromStatus:
+                    oneOf:
+                      - $ref: '#/components/schemas/AssetStatus'
+                      - type: 'null'
+                  toStatus:
+                    $ref: '#/components/schemas/AssetStatus'
+                  reason:
+                    type: string
+                  changedAt:
+                    type: string
+                    format: date-time
+            events:
+              type: array
+              items:
+                type: object
+                additionalProperties: true
+    AssetVersion:
+      type: object
+      required: [id, versionNumber, kind, contentType, sha256, byteSize, manifest, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        kind:
+          type: string
+          enum: [SOURCE, DELIVERY]
+        versionNumber:
+          type: integer
+          minimum: 1
+        contentType:
+          type: string
+          enum: [model/gltf+json, model/gltf-binary]
+        sha256:
+          type: string
+          pattern: '^[a-f0-9]{64}$'
+        byteSize:
+          type: string
+          pattern: '^\d+$'
+        processorVersion:
+          type: [string, 'null']
+        manifest:
+          type: object
+          additionalProperties: true
+        createdAt:
+          type: string
+          format: date-time
+    Job:
+      type: object
+      required: [id, assetId, status, attempt, maxAttempts, runAfter, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        assetId:
+          type: string
+          format: uuid
+        assetName:
+          type: string
+        status:
+          $ref: '#/components/schemas/JobStatus'
+        attempt:
+          type: integer
+          minimum: 0
+        maxAttempts:
+          type: integer
+          minimum: 1
+        runAfter:
+          type: string
+          format: date-time
+        lastError:
+          type: [string, 'null']
+        createdAt:
+          type: string
+          format: date-time
+    Review:
+      type: object
+      required: [id, assetId, status, qualityDecision, qualityScore, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        assetId:
+          type: string
+          format: uuid
+        assetName:
+          type: string
+        status:
+          $ref: '#/components/schemas/ReviewStatus'
+        qualityDecision:
+          type: string
+          enum: [PASS, REVIEW, BLOCK]
+        qualityScore:
+          type: integer
+          minimum: 0
+          maximum: 100
+        findings:
+          type: array
+          items:
+            $ref: '#/components/schemas/QualityFinding'
+        summary:
+          type: [string, 'null']
+        createdAt:
+          type: string
+          format: date-time
+    QualityFinding:
+      type: object
+      required: [code, severity, message]
+      properties:
+        code:
+          type: string
+        severity:
+          type: string
+          enum: [INFO, WARNING, ERROR]
+        message:
+          type: string
+        metric:
+          type: number
+        budget:
+          type: number
+    AuditEntry:
+      type: object
+      required: [id, action, targetType, targetId, correlationId, context, occurredAt, actorName]
+      properties:
+        id:
+          type: string
+          format: uuid
+        actorName:
+          type: string
+        action:
+          type: string
+        targetType:
+          type: string
+        targetId:
+          type: string
+        correlationId:
+          type: string
+          format: uuid
+        context:
+          type: object
+          additionalProperties: true
+        occurredAt:
+          type: string
+          format: date-time
+    Dashboard:
+      type: object
+      additionalProperties: true
+      description: Operational counts, recent assets, reviews, and queue health.
+    CreateAssetResponse:
+      type: object
+      required: [asset, deduplicated]
+      properties:
+        asset:
+          $ref: '#/components/schemas/AssetSummary'
+        deduplicated:
+          type: boolean
+    QueuedResponse:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          const: queued
+    Health:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          const: ok
+    Readiness:
+      type: object
+      required: [status, dependencies]
+      properties:
+        status:
+          type: string
+          enum: [ready, not_ready]
+        dependencies:
+          type: object
+          required: [database, objectStorage]
+          properties:
+            database:
+              type: boolean
+            objectStorage:
+              type: boolean
+    ErrorResponse:
+      type: object
+      required: [error, correlationId]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            details: {}
+        correlationId:
+          type: string
+          format: uuid
+security:
+  - bearerAuth: []

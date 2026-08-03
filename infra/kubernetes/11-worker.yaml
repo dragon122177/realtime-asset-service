@@ -1,0 +1,74 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: forgeflow-worker
+  namespace: forgeflow
+  labels: &labels
+    app.kubernetes.io/name: forgeflow-worker
+    app.kubernetes.io/component: processor
+    app.kubernetes.io/part-of: forgeflow
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: forgeflow-worker
+  template:
+    metadata:
+      labels: *labels
+      annotations:
+        prometheus.io/scrape: 'true'
+        prometheus.io/port: '9092'
+        prometheus.io/path: /metrics
+    spec:
+      serviceAccountName: forgeflow-worker
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: processor
+          image: ghcr.io/dragon122177/forgeflow-api:latest
+          command: ['node', 'apps/api/dist/worker.js']
+          ports:
+            - { name: metrics, containerPort: 9092 }
+          envFrom:
+            - configMapRef: { name: forgeflow-config }
+            - secretRef: { name: forgeflow-secrets }
+          resources:
+            requests: { cpu: 200m, memory: 256Mi }
+            limits: { cpu: 1500m, memory: 1Gi }
+          readinessProbe:
+            httpGet: { path: /health/live, port: metrics }
+            periodSeconds: 10
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet: { path: /health/live, port: metrics }
+            initialDelaySeconds: 15
+            periodSeconds: 15
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ['ALL'] }
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - name: tmp
+          emptyDir: { sizeLimit: 256Mi }
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: forgeflow-worker
+  namespace: forgeflow
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: forgeflow-worker-metrics
+  namespace: forgeflow
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: forgeflow-worker
+  ports:
+    - { name: metrics, port: 9092, targetPort: metrics }

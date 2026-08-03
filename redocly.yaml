@@ -1,0 +1,9 @@
+extends:
+  - recommended
+
+apis:
+  forgeflow:
+    root: ./docs/openapi.yaml
+
+rules:
+  operation-4xx-response: off

@@ -1,0 +1,39 @@
+{
+  "name": "realtime-asset-service",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Full-stack control plane for ingesting, validating, reviewing, and delivering realtime 3D assets.",
+  "workspaces": [
+    "apps/api",
+    "apps/web"
+  ],
+  "scripts": {
+    "build": "npm run build --workspace @forgeflow/api && npm run build --workspace @forgeflow/web",
+    "check": "npm run format:check && npm run lint && npm run typecheck && npm test && npm run build",
+    "db:migrate": "npm run db:migrate --workspace @forgeflow/api",
+    "db:seed": "npm run db:seed --workspace @forgeflow/api",
+    "dev": "concurrently -n api,web -c cyan,magenta \"npm run dev --workspace @forgeflow/api\" \"npm run dev --workspace @forgeflow/web\"",
+    "dev:worker": "npm run dev:worker --workspace @forgeflow/api",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "eslint . --max-warnings=0",
+    "test": "npm run test --workspaces --if-present",
+    "test:coverage": "npm run test:coverage --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  },
+  "engines": {
+    "node": ">=22.12.0",
+    "npm": ">=10.0.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.0",
+    "@vitest/coverage-v8": "^4.1.0",
+    "concurrently": "^9.2.1",
+    "eslint": "^9.39.0",
+    "eslint-config-prettier": "^10.1.8",
+    "globals": "^16.5.0",
+    "prettier": "^3.7.0",
+    "typescript-eslint": "^8.46.0",
+    "vitest": "^4.1.0"
+  }
+}
