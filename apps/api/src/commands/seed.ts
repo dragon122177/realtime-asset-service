@@ -1,6 +1,4 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
 import bcrypt from 'bcryptjs';
 import { loadConfig } from '../config.js';
 import { Database } from '../database/client.js';
@@ -9,6 +7,7 @@ import { sourceObjectKey } from '../domain/object-key.js';
 import type { AuthenticatedUser } from '../domain/types.js';
 import { ControlPlaneRepository } from '../services/control-plane-repository.js';
 import { createObjectStore } from '../services/object-store.js';
+import { readSampleAsset } from '../services/sample-asset-loader.js';
 
 const ids = {
   workspace: 'd64a75dc-285f-4d54-8c50-7ca17d9538c0',
@@ -94,7 +93,7 @@ try {
     },
   ];
   for (const sample of samples) {
-    const bytes = await readFile(resolve(process.cwd(), 'samples', sample.file));
+    const bytes = await readSampleAsset(sample.file);
     const sourceHash = createHash('sha256').update(bytes).digest('hex');
     const objectKey = sourceObjectKey({
       workspaceId: ids.workspace,
