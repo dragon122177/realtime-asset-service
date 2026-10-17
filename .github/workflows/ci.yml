@@ -40,7 +40,7 @@ jobs:
       STORAGE_DRIVER: filesystem
       STORAGE_ROOT: /tmp/forgeflow-ci-storage
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -67,7 +67,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 18
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: docker/setup-buildx-action@v3
       - name: Build API and worker image
         uses: docker/build-push-action@v6
